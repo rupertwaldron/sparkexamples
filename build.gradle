@@ -1,0 +1,25 @@
+plugins {
+    id 'java'
+}
+
+group 'org.ruppyrup'
+version '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.apache.kafka:kafka_2.13:3.2.2'
+    implementation ('org.apache.spark:spark-core_2.13:3.2.2')
+    implementation ('org.apache.spark:spark-sql_2.13:3.2.2')
+    implementation ('org.apache.spark:spark-sql-kafka-0-10_2.13:3.2.2')
+    implementation ('org.apache.spark:spark-streaming_2.13:3.2.2')
+    implementation ('org.apache.spark:spark-streaming-kafka-0-10_2.13:3.2.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+}
+
+test {
+    useJUnitPlatform()
+}
