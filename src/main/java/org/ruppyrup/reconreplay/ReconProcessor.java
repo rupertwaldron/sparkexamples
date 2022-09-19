@@ -22,7 +22,7 @@ public class ReconProcessor {
 
   public static void main(String[] args) throws InterruptedException {
 
-    long duration = 10;
+    long duration = 2;
     Logger.getRootLogger().setLevel(Level.WARN);
     Logger.getLogger("org").setLevel(Level.WARN);
     SparkConf conf = new SparkConf().setAppName("reconviewer").setMaster("local[*]");
@@ -39,21 +39,21 @@ public class ReconProcessor {
         "auto.offset.reset", "latest",
         "enable.auto.commit", false);
 
-    JavaInputDStream<ConsumerRecord<Long, String>> stream = KafkaUtils.createDirectStream(
+    JavaInputDStream<ConsumerRecord<String, String>> stream = KafkaUtils.createDirectStream(
         sparkStreamingContext,
         LocationStrategies.PreferConsistent(),
         ConsumerStrategies.Subscribe(topics, params)
     );
 
-    JavaDStream<String> results = stream.map(
-        item -> item.value());
+    JavaPairDStream<String, String> results = stream.mapToPair(
+        item -> new Tuple2<>(item.key(), item.value()));
 
 //    JavaPairDStream<Long, String> results = stream.mapToPair(data -> new Tuple2<>(data.value(), 5L))
 //        .reduceByKeyAndWindow(Long::sum, Durations.minutes(60),  Durations.minutes(1))
 //        .mapToPair(Tuple2::swap)
 //        .transformToPair(rdd -> rdd.sortByKey(false));
 
-    results.print(10);
+    results.print();
 
     sparkStreamingContext.start();
     sparkStreamingContext.awaitTermination();
