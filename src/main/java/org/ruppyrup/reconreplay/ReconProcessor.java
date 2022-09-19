@@ -40,7 +40,7 @@ public class ReconProcessor {
     List<String> topics = Arrays.asList("reconreplay");
 
     Map<String, Object> params = Map.of(
-        "bootstrap.servers", "localhost:9092,anotherhost:9092",
+        "bootstrap.servers", "localhost:9092",
         "key.deserializer", IntegerDeserializer.class,
         "value.deserializer", StringDeserializer.class,
         "group.id", "spark_group",
@@ -69,7 +69,7 @@ public class ReconProcessor {
 
     Function2<List<Integer>, Optional<Integer>, Optional<Integer>> stateFunction = (values, state) -> {
       Integer sum = state.or(0);
-      for(Integer value : values) {
+      for (Integer value : values) {
         sum += value;
       }
       return Optional.of(sum);
@@ -77,14 +77,20 @@ public class ReconProcessor {
 
     JavaPairDStream<Integer, Integer> results = dStream.updateStateByKey(stateFunction);
 
-    results.foreachRDD(rdd -> {
-      rdd.filter(value -> value._2 == 20)
-          .foreach(value -> {
-            System.out.println(value._1 + " has reached 20");
-          });
-    });
+    JavaPairDStream<Integer, Tuple2<Integer, List<String>>> countAndData = results.join(listDataState);
 
-    results.print();
+    JavaPairDStream<Integer, List<String>> resultsReadyToSend = countAndData
+        .filter(item -> item._2._1 == 20)
+        .mapToPair(item -> new Tuple2<>(item._1, item._2._2));
+
+//    results.foreachRDD(rdd -> {
+//      rdd.filter(value -> value._2 == 20)
+//          .foreach(value -> {
+//            System.out.println(value._1 + " has reached 20");
+//          });
+//    });
+
+    resultsReadyToSend.print();
 
     sparkStreamingContext.start();
     sparkStreamingContext.awaitTermination();
