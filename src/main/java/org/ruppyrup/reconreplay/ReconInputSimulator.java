@@ -17,17 +17,17 @@ import org.jetbrains.annotations.NotNull;
 public class ReconInputSimulator {
 
   public static void main(String[] args) throws InterruptedException, FileNotFoundException {
-    Producer<String, String> producer = createProducer();
+    Producer<Integer, String> producer = createProducer();
     long time = System.currentTimeMillis();
     long sendMessageCount = 1000;
 
     String topic = "reconreplay";
 
     try {
-      for (long index = time; index < time + sendMessageCount; index++) {
+      for (int count = 0; count < sendMessageCount; count++) {
 
-        ProducerRecord<String, String> dataToSend = new ProducerRecord<>(topic,
-            "Hello Mom " + index);
+        ProducerRecord<Integer, String> dataToSend = new ProducerRecord<>(topic, count,
+            "Hello Mom " + count);
 
         RecordMetadata metadata = producer.send(dataToSend).get();
 
@@ -48,7 +48,7 @@ public class ReconInputSimulator {
   }
 
   @NotNull
-  private static Producer<String, String> createProducer() {
+  private static Producer<Integer, String> createProducer() {
     Properties props = new Properties();
     props.put("bootstrap.servers", "localhost:9092");
     props.put("acks", "all"); // See https://kafka.apache.org/documentation/
@@ -56,7 +56,7 @@ public class ReconInputSimulator {
     props.put("batch.size", 16384);
     props.put("linger.ms", 1);
     props.put("buffer.memory", 33554432);
-    props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+    props.put("key.serializer", "org.apache.kafka.common.serialization.IntegerSerializer");
     props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
 
     return new KafkaProducer<>(props);
