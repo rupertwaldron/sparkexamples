@@ -1,16 +1,10 @@
 package org.ruppyrup.reconreplay;
 
-import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
-import java.util.Scanner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -20,7 +14,7 @@ import org.jetbrains.annotations.NotNull;
 public class ReconInputSimulator {
 
   public static void main(String[] args) {
-    Producer<String, String> producer = createProducer();
+    Producer<Integer, String> producer = createProducer();
     List<CompletableFuture<Void>> cfs = new ArrayList<>();
 
     long sendMessageCount = 20;
@@ -29,9 +23,8 @@ public class ReconInputSimulator {
 
     for (int i = 100; i < 110; i++) {
 
-      int finalI = i;
+      int id= i;
       cfs.add(CompletableFuture.runAsync(() -> {
-        final String id = String.valueOf(finalI);
         try {
           publishData(id, producer, sendMessageCount, topic);
         } catch (Exception e) {
@@ -48,12 +41,12 @@ public class ReconInputSimulator {
 
   }
 
-  private static void publishData(String windowId, Producer<String, String> producer, long sendMessageCount,
+  private static void publishData(int windowId, Producer<Integer, String> producer, long sendMessageCount,
       String topic)
       throws InterruptedException, ExecutionException {
     for (int count = 0; count < sendMessageCount; count++) {
 
-      ProducerRecord<String, String> dataToSend = new ProducerRecord<>(topic, windowId + "::" + count,
+      ProducerRecord<Integer, String> dataToSend = new ProducerRecord<>(topic, windowId,
           Thread.currentThread().getName() + " :: " + count);
 
       RecordMetadata metadata = producer.send(dataToSend).get();
@@ -67,7 +60,7 @@ public class ReconInputSimulator {
   }
 
   @NotNull
-  private static Producer<String, String> createProducer() {
+  private static Producer<Integer, String> createProducer() {
     Properties props = new Properties();
     props.put("bootstrap.servers", "localhost:9092");
     props.put("acks", "all"); // See https://kafka.apache.org/documentation/
@@ -75,7 +68,7 @@ public class ReconInputSimulator {
     props.put("batch.size", 16384);
     props.put("linger.ms", 1);
     props.put("buffer.memory", 33554432);
-    props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+    props.put("key.serializer", "org.apache.kafka.common.serialization.IntegerSerializer");
     props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
 
     return new KafkaProducer<>(props);
