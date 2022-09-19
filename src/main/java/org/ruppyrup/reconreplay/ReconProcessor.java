@@ -58,5 +58,4 @@ public class ReconProcessor {
     sparkStreamingContext.start();
     sparkStreamingContext.awaitTermination();
   }
-
 }

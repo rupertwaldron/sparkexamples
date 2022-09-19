@@ -2,6 +2,8 @@ package org.ruppyrup.reconreplay;
 
 import java.io.FileNotFoundException;
 import java.io.FileReader;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Scanner;
@@ -19,35 +21,35 @@ public class ReconInputSimulator {
 
   public static void main(String[] args) {
     Producer<String, String> producer = createProducer();
+    List<CompletableFuture<Void>> cfs = new ArrayList<>();
 
     long sendMessageCount = 20;
 
     String topic = "reconreplay";
 
-    CompletableFuture<Void> publishCF = CompletableFuture.runAsync(() -> {
-      try {
-        publishData("101", producer, sendMessageCount, topic);
-      } catch (Exception e) {
-        throw new RuntimeException(e);
-      }
-    });
+    for (int i = 100; i < 110; i++) {
 
-    CompletableFuture<Void> publishCF2 = CompletableFuture.runAsync(() -> {
-      try {
-        publishData("102", producer, sendMessageCount, topic);
-      } catch (Exception e) {
-        throw new RuntimeException(e);
-      }
-    });
+      int finalI = i;
+      cfs.add(CompletableFuture.runAsync(() -> {
+        final String id = String.valueOf(finalI);
+        try {
+          publishData(id, producer, sendMessageCount, topic);
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }));
 
-    publishCF.join();
-    publishCF2.join();
+    }
+
+    cfs.forEach(CompletableFuture::join);
+
     producer.flush();
     producer.close();
 
   }
 
-  private static void publishData(String windowId, Producer<String, String> producer, long sendMessageCount, String topic)
+  private static void publishData(String windowId, Producer<String, String> producer, long sendMessageCount,
+      String topic)
       throws InterruptedException, ExecutionException {
     for (int count = 0; count < sendMessageCount; count++) {
 
