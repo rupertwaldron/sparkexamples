@@ -21,7 +21,7 @@ public class ReconInputSimulator {
 
     String topic = "reconreplay";
 
-    for (int i = 100; i < 110; i++) {
+    for (int i = 100; i < 2000; i++) {
 
       int id= i;
       cfs.add(CompletableFuture.runAsync(() -> {
@@ -55,7 +55,7 @@ public class ReconInputSimulator {
               "meta(partition=%d, offset=%d)\n",
           dataToSend.key(), dataToSend.value(), metadata.partition(), metadata.offset());
 
-      Thread.sleep((long) (Math.random() * 1000));
+      Thread.sleep((long) (Math.random() * 10));
     }
   }
 

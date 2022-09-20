@@ -33,7 +33,6 @@ public class ReconProcessor {
 
   public static void main(String[] args) throws InterruptedException {
 
-    Map<Integer, List<String>> dataMap = new ConcurrentHashMap<>();
 
     long duration = 2;
     Logger.getRootLogger().setLevel(Level.WARN);
@@ -59,49 +58,27 @@ public class ReconProcessor {
         ConsumerStrategies.Subscribe(topics, params)
     );
 
-//    Function2<List<String>, Optional<List<String>>, Optional<List<String>>> stateDataFunction = (values, state) -> {
-//      List<String> stateDataList = state.or(new ArrayList<>());
-//      stateDataList.addAll(values);
-//      return Optional.of(stateDataList);
-//    };
     Function3<Integer, Optional<String>, State<List<String>>, Tuple2<Integer, List<String>>> mapWithStateFunction = (key, values, state) -> {
       if (!state.exists()) {
         state.update(new ArrayList<>());
       }
 
+      if (state.isTimingOut()) {
+        System.out.println("Key -> " + key + " has timed out.");
+      }
+
       List<String> stateDataList = state.get();
-      stateDataList.add(values.get());
-      state.update(stateDataList);
+      if (values.isPresent()) {
+        stateDataList.add(values.get());
+        state.update(stateDataList);
+      }
       return new Tuple2<>(key, stateDataList);
     };
 
     JavaMapWithStateDStream<Integer, String, List<String>, Tuple2<Integer, List<String>>> dstreamWithState = stream
         .mapToPair(item -> new Tuple2<>(item.key(), item.value()))
-        .mapWithState(StateSpec.function(mapWithStateFunction));
-
-//    JavaPairDStream<Integer, List<String>> listDataState = stream
-//        .mapToPair(item -> new Tuple2<>(item.key(), item.value()))
-//        .updateStateByKey(stateDataFunction);
-
-//    JavaPairDStream<Integer, Integer> dStream = stream
-//        .mapToPair(item -> new Tuple2<>(item.key(), 1))
-//        .reduceByKey(Integer::sum);
-//
-//    Function2<List<Integer>, Optional<Integer>, Optional<Integer>> stateFunction = (values, state) -> {
-//      Integer sum = state.or(0);
-//      for (Integer value : values) {
-//        sum += value;
-//      }
-//      return Optional.of(sum);
-//    };
-
-//    JavaPairDStream<Integer, Integer> results = dStream.updateStateByKey(stateFunction);
-//
-//    JavaPairDStream<Integer, Tuple2<Integer, List<String>>> countAndData = results.join(dstreamWithState);
-//
-//    JavaPairDStream<Integer, List<String>> resultsReadyToSend = countAndData
-//        .filter(item -> item._2._1 == 20)
-//        .mapToPair(item -> new Tuple2<>(item._1, item._2._2));
+//        .mapWithState(StateSpec.function(mapWithStateFunction));
+        .mapWithState(StateSpec.function(mapWithStateFunction).timeout(Durations.seconds(30)));
 
     JavaPairDStream<Integer, Integer> integerIntegerJavaPairDStream = dstreamWithState
         .filter(item -> item._2.size() == 20)
