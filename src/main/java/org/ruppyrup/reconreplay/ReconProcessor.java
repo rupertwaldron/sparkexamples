@@ -1,11 +1,6 @@
 package org.ruppyrup.reconreplay;
 
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -18,13 +13,17 @@ import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.State;
 import org.apache.spark.streaming.StateSpec;
 import org.apache.spark.streaming.api.java.JavaInputDStream;
-import org.apache.spark.streaming.api.java.JavaMapWithStateDStream;
 import org.apache.spark.streaming.api.java.JavaPairDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
 import org.apache.spark.streaming.kafka010.ConsumerStrategies;
 import org.apache.spark.streaming.kafka010.KafkaUtils;
 import org.apache.spark.streaming.kafka010.LocationStrategies;
 import scala.Tuple2;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 public class ReconProcessor {
 
@@ -54,31 +53,41 @@ public class ReconProcessor {
         ConsumerStrategies.Subscribe(topics, params)
     );
 
-    Function3<Integer, Optional<String>, State<List<String>>, Tuple2<Integer, List<String>>> mapWithStateFunction = (key, values, state) -> {
+    Function3<Integer, Optional<Event>, State<List<Event>>, Tuple2<Integer, List<Event>>> mapWithStateFunction = (key, values, state) -> {
       if (!state.exists()) {
         state.update(new ArrayList<>());
       }
 
-      List<String> stateDataList = state.get();
-//      System.out.println("State list size for key " + key + " :: " + stateDataList.size());
+      List<Event> stateEventList = state.get();
 
       if (values.isPresent()) {
-        stateDataList.add(values.get());
-        state.update(stateDataList);
+        stateEventList.add(values.get());
+        state.update(stateEventList);
       }
-      return new Tuple2<>(key, stateDataList);
+      return new Tuple2<>(key, stateEventList);
     };
 
-    var dstreamWithState = stream
-        .mapToPair(item -> new Tuple2<>(item.key(), item.value()))
-//        .mapWithState(StateSpec.function(mapWithStateFunction));
-        .mapWithState(StateSpec.function(mapWithStateFunction).timeout(Durations.seconds(30)));
-//        .filter(item -> !item._2.isEmpty());
+    JavaPairDStream<Integer, Event> eventsStream = stream
+                                                       .transformToPair(rdd -> rdd.mapPartitionsToPair(iterator -> {
+                                                             final List<Tuple2<Integer, Optional<Event>>> ret = new ArrayList<>();
+                                                             iterator.forEachRemaining(record -> {
+                                                               ret.add(new Tuple2<>(record.key(), Optional.of(new Event(record))));
+                                                             });
+                                                             return ret.iterator();
+                                                           })
+                                                                                   .filter(v1 -> v1._2.isPresent())
+                                                                                   .mapValues(Optional::get));
 
-    JavaPairDStream<Integer, Integer> integerIntegerJavaPairDStream = dstreamWithState
-        .filter(item -> item._2.size() == 20)
-        .transform(rows -> rows.distinct())
-        .mapToPair(item -> new Tuple2<>(item._1, item._2.size()));
+    var resultsStream = eventsStream
+                            .mapWithState(StateSpec.function(mapWithStateFunction)
+                                              .timeout(Durations.seconds(20)));
+//        .mapWithState(StateSpec.function(mapWithStateFunction).timeout(Durations.seconds(30)));
+////        .filter(item -> !item._2.isEmpty());
+
+    JavaPairDStream<Integer, Integer> integerIntegerJavaPairDStream = resultsStream
+                                                                          .filter(item -> item._2.size() == 20)
+                                                                          .transform(rows -> rows.distinct())
+                                                                          .mapToPair(item -> new Tuple2<>(item._1, item._2.size()));
 
     integerIntegerJavaPairDStream.print();
 

@@ -1,4 +1,4 @@
-package org.ruppyrup.kafka.structuredstreaming;
+package org.ruppyrup.structuredstreaming;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -18,7 +18,7 @@ import static org.apache.spark.sql.functions.lit;
 import static org.apache.spark.sql.functions.round;
 import static org.apache.spark.sql.functions.sum;
 
-public class ViewingFromKafkaSS {
+public class ViewingFromKafkaWindow {
 
   public static void main(String[] args) throws InterruptedException, TimeoutException, StreamingQueryException {
 
@@ -47,7 +47,8 @@ public class ViewingFromKafkaSS {
 
     // key, value, timestamp
     Dataset<Row> results =
-        session.sql("select cast (value as string) as course_name, sum(5) as seconds_watched from viewing_figures group by course_name order by seconds_watched desc");
+        session.sql("select window, cast (value as string) as course_name, sum(5) as seconds_watched " +
+                        "from viewing_figures group by window(timestamp, '2 minutes'), course_name order by seconds_watched desc");
 
 //    StreamingQuery query = results.writeStream()
 //                               .format("console")
@@ -78,6 +79,7 @@ public class ViewingFromKafkaSS {
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
+                                 .option("numRows", 50)
                                  .outputMode(OutputMode.Complete())
                                  .start();
 
