@@ -1,25 +1,22 @@
 package org.ruppyrup.kafka.structuredstreaming;
 
-import java.util.concurrent.TimeoutException;
-
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.RelationalGroupedDataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.functions;
-import org.apache.spark.sql.streaming.DataStreamWriter;
 import org.apache.spark.sql.streaming.OutputMode;
 import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.StreamingQueryException;
 import org.apache.spark.sql.types.DataTypes;
 
-import static org.apache.spark.sql.functions.*;
-import static org.apache.spark.sql.functions.avg;
+import java.util.concurrent.TimeoutException;
+
 import static org.apache.spark.sql.functions.col;
+import static org.apache.spark.sql.functions.desc;
+import static org.apache.spark.sql.functions.lit;
 import static org.apache.spark.sql.functions.round;
-import static org.apache.spark.sql.functions.stddev;
+import static org.apache.spark.sql.functions.sum;
 
 public class ViewingFromKafkaSS {
 
@@ -50,7 +47,7 @@ public class ViewingFromKafkaSS {
 
     // key, value, timestamp
     Dataset<Row> results =
-        session.sql("select cast (value as string) as course_name, sum(5) as total from viewing_figures group by course_name");
+        session.sql("select cast (value as string) as course_name, sum(5) as seconds_watched from viewing_figures group by course_name order by seconds_watched desc");
 
 //    StreamingQuery query = results.writeStream()
 //                               .format("console")
@@ -77,7 +74,7 @@ public class ViewingFromKafkaSS {
 //                                 .outputMode(OutputMode.Complete())
 //                                 .start();
 
-    StreamingQuery console = javaApi
+    StreamingQuery console = results
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
