@@ -21,7 +21,7 @@ public class ReconInputSimulator {
 
     String topic = "reconreplay";
 
-    for (int i = 1; i < 10001; i++) {
+    for (int i = 1; i < 101; i++) {
 
       int id= i;
       cfs.add(CompletableFuture.runAsync(() -> {

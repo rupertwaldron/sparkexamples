@@ -5,11 +5,14 @@ import org.apache.log4j.Logger;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.functions;
 import org.apache.spark.sql.streaming.OutputMode;
 import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.StreamingQueryException;
+import org.apache.spark.sql.streaming.Trigger;
 import org.apache.spark.sql.types.DataTypes;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static org.apache.spark.sql.functions.col;
@@ -30,11 +33,15 @@ public class ViewingFromKafkaWindow {
                                .appName("structuredViewingReport")
                                .getOrCreate();
 
+    // speeds everything up as limits number of partitions
+    session.conf().set("spark.sql.shuffle.partitions", "10");
+
     Dataset<Row> df = session.readStream()
                           .format("kafka")
                           .option("kafka.bootstrap.servers", "localhost:9092")
                           .option("subscribe", "viewrecords")
                           .load();
+
 
     Dataset<Row> sourceData = session.readStream()
                                   .format("rate")
@@ -58,10 +65,14 @@ public class ViewingFromKafkaWindow {
     Dataset<Row> javaApi = df
                                .withColumn("total", lit(5))
                                .select(
+                                   col("timestamp"),
                                    col("value").cast(DataTypes.StringType).alias("course_name"),
                                    col("total")
                                )
-                               .groupBy(col("course_name"))
+                               .withWatermark("timestamp", "2 minutes") // for use with windowing so discard old data and don't hold state
+                               .groupBy(
+                                   functions.window(col("timestamp"), "1 minutes"),
+                                   col("course_name"))
 //                               .pivot(col("total"))
                                .agg(
                                    round(sum(col("total")), 2).alias("score")
@@ -75,7 +86,7 @@ public class ViewingFromKafkaWindow {
 //                                 .outputMode(OutputMode.Complete())
 //                                 .start();
 
-    StreamingQuery console = results
+    StreamingQuery console = javaApi
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)

@@ -56,7 +56,7 @@ public class ViewingFigures {
 
     modernArt.show();
 
-    dataset.createOrReplaceTempView("my_students_table");
+      dataset.createOrReplaceTempView("my_students_table");
 
 //    Dataset<Row> results = sqlspark.sql("select score, year from my_students_table where subject = 'French'");
 //    Dataset<Row> results = sqlspark.sql("select avg(score) from my_students_table where subject = 'French'");

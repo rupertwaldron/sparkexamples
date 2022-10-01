@@ -71,7 +71,7 @@ public class ReconProcessor {
       if (!reconUnit.isComplete()) {
         return new Tuple2<>(key, Optional.empty());
       } else {
-//        state.remove();
+        state.remove();
         return new Tuple2<>(key, Optional.of(new ReconResult(reconUnit, "Completed")));
       }
     };
