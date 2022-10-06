@@ -2,14 +2,31 @@ package org.ruppyrup.reconwithss;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
+import org.apache.spark.api.java.Optional;
+import org.apache.spark.api.java.function.FilterFunction;
+import org.apache.spark.api.java.function.MapFunction;
+import org.apache.spark.api.java.function.MapGroupsWithStateFunction;
+import org.apache.spark.api.java.function.ReduceFunction;
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.KeyValueGroupedDataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.functions;
+import org.apache.spark.sql.streaming.GroupState;
 import org.apache.spark.sql.streaming.OutputMode;
 import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.StreamingQueryException;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
+import org.ruppyrup.reconreplay.ReconResult;
+import org.ruppyrup.reconreplay.ReconUnit;
+import scala.Tuple2;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 
 import static org.apache.spark.sql.functions.col;
@@ -17,13 +34,29 @@ import static org.apache.spark.sql.functions.desc;
 import static org.apache.spark.sql.functions.lit;
 import static org.apache.spark.sql.functions.round;
 import static org.apache.spark.sql.functions.sum;
+import static org.apache.zookeeper.ZooDefs.OpCode.create;
 
 public class SSReconProcessor {
+
+  private static final int WINDOW_SIZE = 10;
 
   public static void main(String[] args) throws InterruptedException, TimeoutException, StreamingQueryException {
 
     Logger.getRootLogger().setLevel(Level.WARN);
     Logger.getLogger("org").setLevel(Level.WARN);
+
+    StructType accountSchema = DataTypes.createStructType(new StructField[]{
+        DataTypes.createStructField("accountNumber", DataTypes.StringType, true),
+        DataTypes.createStructField("accountName", DataTypes.StringType, true),
+        DataTypes.createStructField("balance", DataTypes.DoubleType, true),
+    });
+
+    //create schema for json message
+    StructType accountWrapperSchema = DataTypes.createStructType(new StructField[]{
+        DataTypes.createStructField("windowId", DataTypes.IntegerType, true),
+        DataTypes.createStructField("counter", DataTypes.IntegerType, true),
+        DataTypes.createStructField("account", accountSchema, true),
+    });
 
     SparkSession session = SparkSession.builder()
                                .master("local[*]")
@@ -31,57 +64,79 @@ public class SSReconProcessor {
                                .getOrCreate();
 
 
+    Dataset<AccountWrapper> df = session.readStream()
+                                     .format("kafka")
+                                     .option("kafka.bootstrap.servers", "localhost:9092")
+                                     .option("subscribe", "reconreplay")
+                                     .load()
+                                     .selectExpr("CAST(value AS STRING) as message")
+                                     .select(functions.from_json(col("message"), accountWrapperSchema).as("json"))
+                                     .select("json.*")
+                                     .as(Encoders.bean(AccountWrapper.class));
 
-    Dataset<Row> df = session.readStream()
-                          .format("kafka")
-                          .option("kafka.bootstrap.servers", "localhost:9092")
-                          .option("subscribe", "viewrecords")
-                          .load()
-                          .selectExpr("CAST(value AS STRING) as message");
+    KeyValueGroupedDataset<Integer, AccountWrapper> groupByWindowId = df.groupByKey((MapFunction<AccountWrapper, Integer>) AccountWrapper::getWindowId, Encoders.INT());
 
-    Dataset<Row> sourceData = session.readStream()
-                                  .format("rate")
-                                  .option("rowsPerSecond", 1)
-                                  .load();
-
-
-    df.createOrReplaceTempView("viewing_figures");
-//    sourceData.createOrReplaceTempView("viewing_figures");
-
-    // key, value, timestamp
-    Dataset<Row> results =
-        session.sql("select cast (value as string) as course_name, sum(5) as seconds_watched from viewing_figures group by course_name order by seconds_watched desc");
-
-//    StreamingQuery query = results.writeStream()
-//                               .format("console")
-//                               .outputMode(OutputMode.Complete())
-//                               .start();
-
-    Dataset<Row> javaApi = df
-                               .withColumn("total", lit(5))
-                               .select(
-                                   col("value").cast(DataTypes.StringType).alias("course_name"),
-                                   col("total")
-                               )
-                               .groupBy(col("course_name"))
-//                               .pivot(col("total"))
-                               .agg(
-                                   round(sum(col("total")), 2).alias("score")
-                               )
-                               .sort(desc("score"));
+    Dataset<Tuple2<Integer, AccountWrapper>> combined = groupByWindowId.reduceGroups(new ReduceFunction<AccountWrapper>() {
+      @Override
+      public AccountWrapper call(final AccountWrapper v1, final AccountWrapper v2) throws Exception {
+        return v1;
+      }
+    });
 
 
-//    StreamingQuery console = results
-//                                 .writeStream()
-//                                 .format("console")
-//                                 .outputMode(OutputMode.Complete())
-//                                 .start();
+    Dataset<WindowResult> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, AccountWindow, WindowResult>() {
 
-    StreamingQuery console = results
+      @Override
+      public WindowResult call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<AccountWindow> state) throws Exception {
+
+        if (!values.hasNext() || state.hasTimedOut()) {
+          System.out.println("State timeout for key -> " + key);
+          WindowResult windowResult = new WindowResult(null, key + " is timing out");
+          state.remove();
+          return windowResult;
+        }
+
+        AccountWindow currentWindowState = state.getOption().getOrElse(() -> new AccountWindow(WINDOW_SIZE));
+
+        while (values.hasNext()) {
+          AccountWrapper accountWrapper = values.next();
+          System.out.println("For each remaining => " + accountWrapper);
+          currentWindowState.addAccountWrapper(accountWrapper);
+          state.update(currentWindowState);
+        }
+
+        if (!currentWindowState.isComplete()) {
+          state.setTimeoutDuration(10000L);
+          return new WindowResult(currentWindowState, "Not complete");
+        } else {
+          state.remove();
+          return new WindowResult(currentWindowState, "Completed");
+        }
+      }
+    }, Encoders.bean(AccountWindow.class), Encoders.bean(WindowResult.class));
+
+
+
+//    Dataset<Row> javaApi = df
+//                               .withColumn("total", lit(5))
+//                               .select(
+//                                   col("value").cast(DataTypes.StringType).alias("course_name"),
+//                                   col("total")
+//                               )
+//                               .groupBy(col("course_name"))
+////                               .pivot(col("total"))
+//                               .agg(
+//                                   round(sum(col("total")), 2).alias("score")
+//                               )
+//                               .sort(desc("score"));
+
+
+    StreamingQuery console = windowResultDataset
+                                 .filter((FilterFunction<WindowResult>) Objects::nonNull)
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
-                                 .outputMode(OutputMode.Complete())
+                                 .outputMode(OutputMode.Update())
                                  .start();
 
     console.awaitTermination();

@@ -7,6 +7,9 @@ public class AccountWrapper implements Serializable {
   private int windowId;
   private int counter;
 
+  public AccountWrapper() {
+  }
+
   public AccountWrapper(final Account account, final int windowId, final int counter) {
     this.account = account;
     this.windowId = windowId;

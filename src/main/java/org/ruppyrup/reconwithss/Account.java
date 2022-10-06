@@ -8,6 +8,9 @@ public class Account implements Serializable {
   private String accountName;
   private double balance;
 
+  public Account() {
+  }
+
   public Account(final String accountNumber, final String accountName, final double balance) {
     this.accountNumber = accountNumber;
     this.accountName = accountName;
