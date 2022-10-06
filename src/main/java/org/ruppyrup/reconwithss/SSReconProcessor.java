@@ -84,36 +84,37 @@ public class SSReconProcessor {
     });
 
 
-    Dataset<WindowResult> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, AccountWindow, WindowResult>() {
+    Dataset<Integer> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, Integer, Integer>() {
 
       @Override
-      public WindowResult call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<AccountWindow> state) throws Exception {
+      public Integer call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<Integer> state) throws Exception {
 
         if (!values.hasNext() || state.hasTimedOut()) {
           System.out.println("State timeout for key -> " + key);
           WindowResult windowResult = new WindowResult(null, key + " is timing out");
           state.remove();
-          return windowResult;
+          return 0;
         }
 
-        AccountWindow currentWindowState = state.getOption().getOrElse(() -> new AccountWindow(WINDOW_SIZE));
+        Integer currentWindowState = state.getOption().getOrElse(() -> 0);
 
         while (values.hasNext()) {
           AccountWrapper accountWrapper = values.next();
           System.out.println("For each remaining => " + accountWrapper);
-          currentWindowState.addAccountWrapper(accountWrapper);
-          state.update(currentWindowState);
+          currentWindowState++;
         }
+        state.update(currentWindowState);
 
-        if (!currentWindowState.isComplete()) {
-          state.setTimeoutDuration(10000L);
-          return new WindowResult(currentWindowState, "Not complete");
+        if (currentWindowState != 10) {
+//          state.setTimeoutDuration(10000L);
+          return currentWindowState;
         } else {
+          System.out.println("Removing state for key -> " + key);
           state.remove();
-          return new WindowResult(currentWindowState, "Completed");
+          return currentWindowState;
         }
       }
-    }, Encoders.bean(AccountWindow.class), Encoders.bean(WindowResult.class));
+    }, Encoders.INT(), Encoders.INT());
 
 
 
@@ -132,7 +133,7 @@ public class SSReconProcessor {
 
 
     StreamingQuery console = windowResultDataset
-                                 .filter((FilterFunction<WindowResult>) Objects::nonNull)
+//                                 .filter((FilterFunction<WindowResult>) Objects::nonNull)
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
