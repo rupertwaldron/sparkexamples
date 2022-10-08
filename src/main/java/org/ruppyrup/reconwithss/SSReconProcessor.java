@@ -63,6 +63,7 @@ public class SSReconProcessor {
     SparkSession session = SparkSession.builder()
                                .master("local[*]")
                                .appName("structuredreconreplay")
+                               .config("spark.sql.streaming.checkpointLocation", "./rdds")
                                .getOrCreate();
 
 
@@ -111,7 +112,6 @@ public class SSReconProcessor {
     StreamingQuery console = windowResultDataset
                                  .filter(col("_1").equalTo(10))
                                  .flatMap(tuple3AccountWrapperFlatMapFunction, Encoders.bean(AccountWrapper.class))
-                                 .select(col("_1").alias("count"), col("_2").alias("windowId"), col("_3").alias("data"))
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
