@@ -20,6 +20,7 @@ import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import scala.Tuple2;
+import scala.Tuple3;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -74,17 +75,16 @@ public class SSReconProcessor {
 
 
     Encoder<AccountWindow> listEncoder = Encoders.bean(AccountWindow.class);
-    Encoder<Tuple2<Integer, AccountWindow>> tuple2Encoder = Encoders.tuple(Encoders.INT(), listEncoder);
-    Dataset<Tuple2<Integer, AccountWindow>> windowResultDataset = groupByWindowId.mapGroupsWithState((MapGroupsWithStateFunction<Integer, AccountWrapper, AccountWindow, Tuple2<Integer, AccountWindow>>) (key, values, state) -> {
+    Encoder<Tuple3<Integer, Integer, AccountWindow>> tuple3Encoder = Encoders.tuple(Encoders.INT(), Encoders.INT(), listEncoder);
+    Dataset<Tuple3<Integer, Integer, AccountWindow>> windowResultDataset = groupByWindowId.mapGroupsWithState((MapGroupsWithStateFunction<Integer, AccountWrapper, AccountWindow, Tuple3<Integer, Integer, AccountWindow>>) (key, values, state) -> {
 
       if (!values.hasNext() || state.hasTimedOut()) {
         System.out.println("State timeout for key -> " + key);
         state.remove();
-        return new Tuple2<>(-1, new AccountWindow());
+        return new Tuple3<>(-1, -1, new AccountWindow());
       }
 
       AccountWindow currentWindowState = state.getOption().getOrElse(AccountWindow::new);
-      currentWindowState.setWindowId(key);
 
       while (values.hasNext()) {
         AccountWrapper accountWrapper = values.next();
@@ -97,8 +97,8 @@ public class SSReconProcessor {
         state.remove();
       }
 
-      return new Tuple2<>(currentWindowState.getAccountWrappers().size(), currentWindowState);
-    }, listEncoder, tuple2Encoder);
+      return new Tuple3<>(currentWindowState.getAccountWrappers().size(), key, currentWindowState);
+    }, listEncoder, tuple3Encoder);
 
 
 //    Dataset<Row> javaApi = df
@@ -116,7 +116,7 @@ public class SSReconProcessor {
 
 
     StreamingQuery console = windowResultDataset
-                                 .select(col("_1").alias("count"), col("_2").alias("data"))
+                                 .select(col("_1").alias("count"), col("_2").alias("windowId"), col("_3").alias("data"))
                                  .filter(col("count").equalTo(10))
                                  .writeStream()
                                  .format("console")
