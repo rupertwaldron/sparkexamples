@@ -36,6 +36,7 @@ import java.util.concurrent.TimeoutException;
 
 import static org.apache.spark.sql.functions.callUDF;
 import static org.apache.spark.sql.functions.col;
+import static org.apache.spark.sql.functions.concat_ws;
 import static org.codehaus.commons.compiler.samples.DemoBase.explode;
 
 public class SSReconProcessor {
@@ -108,13 +109,17 @@ public class SSReconProcessor {
     FlatMapFunction<Tuple3<Integer, Integer, AccountWindow>, AccountWrapper> tuple3AccountWrapperFlatMapFunction = tpl3 ->
                                                                                                                        tpl3._3().getAccountWrappers().iterator();
 
+
     StreamingQuery console = windowResultDataset
                                  .filter(col("_1").equalTo(10))
                                  .flatMap(tuple3AccountWrapperFlatMapFunction, Encoders.bean(AccountWrapper.class))
-                                 .select(col("_1").alias("count"), col("_2").alias("windowId"), col("_3").alias("data"))
+                                 .withColumn("key", col("windowId").cast(DataTypes.StringType))
+                                 .withColumn("value", col("account").cast(DataTypes.StringType))
                                  .writeStream()
-                                 .format("console")
-                                 .option("truncate", false)
+                                 .format("kafka")
+                                 .option("kafka.bootstrap.servers", "localhost:9092")
+                                 .option("topic", "replay")
+                                 .option("checkpointLocation", "checkpoint/kafka_checkpoint")
                                  .outputMode(OutputMode.Update())
                                  .start();
 
