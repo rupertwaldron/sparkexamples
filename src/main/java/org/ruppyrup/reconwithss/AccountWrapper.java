@@ -39,4 +39,13 @@ public class AccountWrapper implements Serializable {
   public void setCounter(final int counter) {
     this.counter = counter;
   }
+
+  @Override
+  public String toString() {
+    return "AccountWrapper{" +
+               "account=" + account +
+               ", windowId=" + windowId +
+               ", counter=" + counter +
+               '}';
+  }
 }

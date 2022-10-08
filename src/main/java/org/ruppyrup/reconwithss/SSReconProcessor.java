@@ -21,8 +21,10 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import scala.Tuple2;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeoutException;
@@ -78,10 +80,11 @@ public class SSReconProcessor {
 
 
     Encoder<Tuple2<Integer, String>> tuple2Encoder = Encoders.tuple(Encoders.INT(), Encoders.STRING());
-    Dataset<Tuple2<Integer, String>> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, String, Tuple2<Integer, String>>() {
+    Encoder<AccountWindow> listEncoder = Encoders.bean(AccountWindow.class);
+    Dataset<Tuple2<Integer, String>> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, AccountWindow, Tuple2<Integer, String>>() {
 
       @Override
-      public Tuple2<Integer, String> call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<String> state) throws Exception {
+      public Tuple2<Integer, String> call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<AccountWindow> state) throws Exception {
 
         if (!values.hasNext() || state.hasTimedOut()) {
           System.out.println("State timeout for key -> " + key);
@@ -90,11 +93,12 @@ public class SSReconProcessor {
           return new Tuple2<>(key, "Timed out or none");
         }
 
-        String currentWindowState = state.getOption().getOrElse(String::new);
+        AccountWindow currentWindowState = state.getOption().getOrElse(AccountWindow::new);
 
         while (values.hasNext()) {
           AccountWrapper accountWrapper = values.next();
-          currentWindowState += accountWrapper.getAccount().toString();
+          List<AccountWrapper> accountWrappers = currentWindowState.getAccountWrappers();
+          accountWrappers.add(accountWrapper);
         }
         state.update(currentWindowState);
 
@@ -106,9 +110,9 @@ public class SSReconProcessor {
 //          state.remove();
 ////          return currentWindowState;
 //        }
-        return new Tuple2<>(key, currentWindowState);
+        return new Tuple2<>(key, "processing");
       }
-    }, Encoders.STRING(), tuple2Encoder);
+    }, listEncoder, tuple2Encoder);
 
 
 

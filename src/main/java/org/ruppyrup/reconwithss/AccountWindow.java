@@ -7,39 +7,24 @@ import java.util.List;
 
 public class AccountWindow implements Serializable {
 
-  private final int windowSize;
 
-  private final List<AccountWrapper> accountWrappers = new ArrayList<>();
+  private List<AccountWrapper> accountWrappers = new ArrayList<>();
 
   public AccountWindow() {
-    windowSize = 10;
   }
 
-  public AccountWindow(final int windowSize) {
-    this.windowSize = windowSize;
-  }
-
-  public void addAccountWrapper(AccountWrapper event) {
-    accountWrappers.add(event);
-  }
-
-  public Collection<AccountWrapper> getAccountWrappers() {
+  public List<AccountWrapper> getAccountWrappers() {
     return accountWrappers;
   }
 
-  public boolean isComplete() {
-    return accountWrappers.size() == windowSize;
-  }
-
-  public int getEventCount() {
-    return accountWrappers.size();
+  public void setAccountWrappers(final List<AccountWrapper> accountWrappers) {
+    this.accountWrappers = accountWrappers;
   }
 
   @Override
   public String toString() {
     return "AccountWindow{" +
-               "windowSize=" + windowSize +
-               ", accountWrappers=" + accountWrappers +
+               "accountWrappers=" + accountWrappers +
                '}';
   }
 }
