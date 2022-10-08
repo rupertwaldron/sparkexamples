@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 
+import static org.apache.spark.sql.functions.callUDF;
 import static org.apache.spark.sql.functions.col;
 
 public class SSReconProcessor {
@@ -71,47 +72,32 @@ public class SSReconProcessor {
 
     KeyValueGroupedDataset<Integer, AccountWrapper> groupByWindowId = df.groupByKey((MapFunction<AccountWrapper, Integer>) AccountWrapper::getWindowId, Encoders.INT());
 
-    Dataset<Tuple2<Integer, AccountWrapper>> combined = groupByWindowId.reduceGroups(new ReduceFunction<AccountWrapper>() {
-      @Override
-      public AccountWrapper call(final AccountWrapper v1, final AccountWrapper v2) throws Exception {
-        return v1;
-      }
-    });
-
 
     Encoder<AccountWindow> listEncoder = Encoders.bean(AccountWindow.class);
     Encoder<Tuple2<Integer, AccountWindow>> tuple2Encoder = Encoders.tuple(Encoders.INT(), listEncoder);
-    Dataset<Tuple2<Integer, AccountWindow>> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, AccountWindow, Tuple2<Integer, AccountWindow>>() {
+    Dataset<Tuple2<Integer, AccountWindow>> windowResultDataset = groupByWindowId.mapGroupsWithState((MapGroupsWithStateFunction<Integer, AccountWrapper, AccountWindow, Tuple2<Integer, AccountWindow>>) (key, values, state) -> {
 
-      @Override
-      public Tuple2<Integer, AccountWindow> call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<AccountWindow> state) throws Exception {
-
-        if (!values.hasNext() || state.hasTimedOut()) {
-          System.out.println("State timeout for key -> " + key);
-          WindowResult windowResult = new WindowResult(null, key + " is timing out");
-          state.remove();
-          return new Tuple2<>(key, new AccountWindow());
-        }
-
-        AccountWindow currentWindowState = state.getOption().getOrElse(AccountWindow::new);
-
-        while (values.hasNext()) {
-          AccountWrapper accountWrapper = values.next();
-          currentWindowState.getAccountWrappers().add(accountWrapper);
-        }
-        state.update(currentWindowState);
-
-        if (currentWindowState.getAccountWrappers().size() != 10) {
-          state.setTimeoutDuration(1000L);
-          return new Tuple2<>(key, new AccountWindow());
-        } else {
-          System.out.println("Removing state for key -> " + key);
-          state.remove();
-         return new Tuple2<>(key, currentWindowState);
-        }
+      if (!values.hasNext() || state.hasTimedOut()) {
+        System.out.println("State timeout for key -> " + key);
+        state.remove();
+        return new Tuple2<>(-1, new AccountWindow());
       }
-    }, listEncoder, tuple2Encoder);
 
+      AccountWindow currentWindowState = state.getOption().getOrElse(AccountWindow::new);
+
+      while (values.hasNext()) {
+        AccountWrapper accountWrapper = values.next();
+        currentWindowState.getAccountWrappers().add(accountWrapper);
+      }
+      state.update(currentWindowState);
+
+      if (currentWindowState.getAccountWrappers().size() == 10) {
+        System.out.println("Removing state for key -> " + key);
+        state.remove();
+      }
+
+      return new Tuple2<>(currentWindowState.getAccountWrappers().size(), currentWindowState);
+    }, listEncoder, tuple2Encoder);
 
 
 //    Dataset<Row> javaApi = df
@@ -129,9 +115,8 @@ public class SSReconProcessor {
 
 
     StreamingQuery console = windowResultDataset
-                                 .select(col("_1").alias("key"), col("_2").alias("data"))
-//                                 .filter(col("data").notEqual(null))
-//                                 .filter(col("count").equalTo(10))
+                                 .select(col("_1").alias("count"), col("_2").alias("data"))
+                                 .filter(col("count").equalTo(10))
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
