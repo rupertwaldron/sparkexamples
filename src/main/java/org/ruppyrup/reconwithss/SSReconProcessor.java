@@ -80,17 +80,17 @@ public class SSReconProcessor {
 
 
     Encoder<AccountWindow> listEncoder = Encoders.bean(AccountWindow.class);
-    Encoder<Tuple2<Integer, Integer>> tuple2Encoder = Encoders.tuple(Encoders.INT(), Encoders.INT());
-    Dataset<Tuple2<Integer, Integer>> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, AccountWindow, Tuple2<Integer, Integer>>() {
+    Encoder<Tuple2<Integer, AccountWindow>> tuple2Encoder = Encoders.tuple(Encoders.INT(), listEncoder);
+    Dataset<Tuple2<Integer, AccountWindow>> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, AccountWindow, Tuple2<Integer, AccountWindow>>() {
 
       @Override
-      public Tuple2<Integer, Integer> call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<AccountWindow> state) throws Exception {
+      public Tuple2<Integer, AccountWindow> call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<AccountWindow> state) throws Exception {
 
         if (!values.hasNext() || state.hasTimedOut()) {
           System.out.println("State timeout for key -> " + key);
           WindowResult windowResult = new WindowResult(null, key + " is timing out");
           state.remove();
-          return new Tuple2<>(key, -1);
+          return new Tuple2<>(key, new AccountWindow());
         }
 
         AccountWindow currentWindowState = state.getOption().getOrElse(AccountWindow::new);
@@ -102,12 +102,12 @@ public class SSReconProcessor {
         state.update(currentWindowState);
 
         if (currentWindowState.getAccountWrappers().size() != 10) {
-//          state.setTimeoutDuration(10000L);
-          return new Tuple2<>(key, currentWindowState.getAccountWrappers().size());
+          state.setTimeoutDuration(1000L);
+          return new Tuple2<>(key, new AccountWindow());
         } else {
           System.out.println("Removing state for key -> " + key);
           state.remove();
-         return new Tuple2<>(key, currentWindowState.getAccountWrappers().size());
+         return new Tuple2<>(key, currentWindowState);
         }
       }
     }, listEncoder, tuple2Encoder);
@@ -129,8 +129,9 @@ public class SSReconProcessor {
 
 
     StreamingQuery console = windowResultDataset
-                                 .select(col("_1").alias("key"), col("_2").alias("count"))
-                                 .filter(col("count").equalTo(10))
+                                 .select(col("_1").alias("key"), col("_2").alias("data"))
+//                                 .filter(col("data").notEqual(null))
+//                                 .filter(col("count").equalTo(10))
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
