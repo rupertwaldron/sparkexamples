@@ -7,7 +7,7 @@ import java.util.List;
 
 public class AccountWindow implements Serializable {
 
-
+  private int windowId;
   private List<AccountWrapper> accountWrappers = new ArrayList<>();
 
   public AccountWindow() {
@@ -21,10 +21,19 @@ public class AccountWindow implements Serializable {
     this.accountWrappers = accountWrappers;
   }
 
+  public int getWindowId() {
+    return windowId;
+  }
+
+  public void setWindowId(final int windowId) {
+    this.windowId = windowId;
+  }
+
   @Override
   public String toString() {
     return "AccountWindow{" +
-               "accountWrappers=" + accountWrappers +
+               "windowId=" + windowId +
+               ", accountWrappers=" + accountWrappers +
                '}';
   }
 }

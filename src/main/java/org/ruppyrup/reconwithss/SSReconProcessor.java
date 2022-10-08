@@ -84,6 +84,7 @@ public class SSReconProcessor {
       }
 
       AccountWindow currentWindowState = state.getOption().getOrElse(AccountWindow::new);
+      currentWindowState.setWindowId(key);
 
       while (values.hasNext()) {
         AccountWrapper accountWrapper = values.next();
