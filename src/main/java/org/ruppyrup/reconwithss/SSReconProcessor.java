@@ -8,6 +8,7 @@ import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.api.java.function.MapGroupsWithStateFunction;
 import org.apache.spark.api.java.function.ReduceFunction;
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoder;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.KeyValueGroupedDataset;
 import org.apache.spark.sql.Row;
@@ -84,16 +85,17 @@ public class SSReconProcessor {
     });
 
 
-    Dataset<Integer> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, Integer, Integer>() {
+    Encoder<Tuple2<Integer, Integer>> tuple2Encoder = Encoders.tuple(Encoders.INT(), Encoders.INT());
+    Dataset<Tuple2<Integer, Integer>> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, Integer, Tuple2<Integer, Integer>>() {
 
       @Override
-      public Integer call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<Integer> state) throws Exception {
+      public Tuple2<Integer, Integer> call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<Integer> state) throws Exception {
 
         if (!values.hasNext() || state.hasTimedOut()) {
           System.out.println("State timeout for key -> " + key);
           WindowResult windowResult = new WindowResult(null, key + " is timing out");
           state.remove();
-          return 0;
+          return new Tuple2<>(key, -1);
         }
 
         Integer currentWindowState = state.getOption().getOrElse(() -> 0);
@@ -107,14 +109,15 @@ public class SSReconProcessor {
 
         if (currentWindowState != 10) {
 //          state.setTimeoutDuration(10000L);
-          return currentWindowState;
+//          return new Tuple2<>(key, currentWindowState);
         } else {
           System.out.println("Removing state for key -> " + key);
           state.remove();
-          return currentWindowState;
+//          return currentWindowState;
         }
+        return new Tuple2<>(key, currentWindowState);
       }
-    }, Encoders.INT(), Encoders.INT());
+    }, Encoders.INT(), tuple2Encoder);
 
 
 
@@ -133,6 +136,7 @@ public class SSReconProcessor {
 
 
     StreamingQuery console = windowResultDataset
+                                 .select(col("_1").alias("key"), col("_2").alias("count"))
 //                                 .filter((FilterFunction<WindowResult>) Objects::nonNull)
                                  .writeStream()
                                  .format("console")
