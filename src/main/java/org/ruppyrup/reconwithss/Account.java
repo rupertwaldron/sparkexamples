@@ -40,4 +40,13 @@ public class Account implements Serializable {
   public void setBalance(final double balance) {
     this.balance = balance;
   }
+
+  @Override
+  public String toString() {
+    return "Account{" +
+               "accountNumber='" + accountNumber + '\'' +
+               ", accountName='" + accountName + '\'' +
+               ", balance=" + balance +
+               '}';
+  }
 }

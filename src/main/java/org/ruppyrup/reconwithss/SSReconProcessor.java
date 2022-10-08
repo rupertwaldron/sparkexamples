@@ -33,8 +33,6 @@ public class SSReconProcessor {
 
   private static final int WINDOW_SIZE = 10;
 
-  private static final Map<Integer, Integer> store = new HashMap<>();
-
   public static void main(String[] args) throws InterruptedException, TimeoutException, StreamingQueryException {
 
     Logger.getRootLogger().setLevel(Level.WARN);
@@ -79,39 +77,38 @@ public class SSReconProcessor {
     });
 
 
-    Encoder<Tuple2<Integer, Integer>> tuple2Encoder = Encoders.tuple(Encoders.INT(), Encoders.INT());
-    Dataset<Tuple2<Integer, Integer>> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, Integer, Tuple2<Integer, Integer>>() {
+    Encoder<Tuple2<Integer, String>> tuple2Encoder = Encoders.tuple(Encoders.INT(), Encoders.STRING());
+    Dataset<Tuple2<Integer, String>> windowResultDataset = groupByWindowId.mapGroupsWithState(new MapGroupsWithStateFunction<Integer, AccountWrapper, String, Tuple2<Integer, String>>() {
 
       @Override
-      public Tuple2<Integer, Integer> call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<Integer> state) throws Exception {
+      public Tuple2<Integer, String> call(final Integer key, final Iterator<AccountWrapper> values, final GroupState<String> state) throws Exception {
 
         if (!values.hasNext() || state.hasTimedOut()) {
           System.out.println("State timeout for key -> " + key);
           WindowResult windowResult = new WindowResult(null, key + " is timing out");
           state.remove();
-          return new Tuple2<>(key, -1);
+          return new Tuple2<>(key, "Timed out or none");
         }
 
-        Integer currentWindowState = state.getOption().getOrElse(() -> 0);
+        String currentWindowState = state.getOption().getOrElse(String::new);
 
         while (values.hasNext()) {
           AccountWrapper accountWrapper = values.next();
-          currentWindowState++;
+          currentWindowState += accountWrapper.getAccount().toString();
         }
-        store.put(key, currentWindowState * 10);
         state.update(currentWindowState);
 
-        if (currentWindowState != 10) {
-//          state.setTimeoutDuration(10000L);
-//          return new Tuple2<>(key, currentWindowState);
-        } else {
-          System.out.println("Removing state for key -> " + key);
-          state.remove();
-//          return currentWindowState;
-        }
+//        if (currentWindowState != 10) {
+////          state.setTimeoutDuration(10000L);
+////          return new Tuple2<>(key, currentWindowState);
+//        } else {
+//          System.out.println("Removing state for key -> " + key);
+//          state.remove();
+////          return currentWindowState;
+//        }
         return new Tuple2<>(key, currentWindowState);
       }
-    }, Encoders.INT(), tuple2Encoder);
+    }, Encoders.STRING(), tuple2Encoder);
 
 
 
@@ -130,8 +127,8 @@ public class SSReconProcessor {
 
 
     StreamingQuery console = windowResultDataset
-                                 .select(col("_1").alias("key"), col("_2").alias("count"))
-                                 .filter(col("count").equalTo(10))
+//                                 .select(col("_1").alias("key"), col("_2").alias("count"))
+//                                 .filter(col("count").equalTo(10))
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
