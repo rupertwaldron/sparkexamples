@@ -2,7 +2,6 @@ package org.ruppyrup.reconwithss;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
-import org.apache.spark.api.java.Optional;
 import org.apache.spark.api.java.function.FilterFunction;
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.api.java.function.MapGroupsWithStateFunction;
@@ -11,7 +10,6 @@ import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.KeyValueGroupedDataset;
-import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.apache.spark.sql.streaming.GroupState;
@@ -21,25 +19,21 @@ import org.apache.spark.sql.streaming.StreamingQueryException;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import org.ruppyrup.reconreplay.ReconResult;
-import org.ruppyrup.reconreplay.ReconUnit;
 import scala.Tuple2;
 
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 
 import static org.apache.spark.sql.functions.col;
-import static org.apache.spark.sql.functions.desc;
-import static org.apache.spark.sql.functions.lit;
-import static org.apache.spark.sql.functions.round;
-import static org.apache.spark.sql.functions.sum;
-import static org.apache.zookeeper.ZooDefs.OpCode.create;
 
 public class SSReconProcessor {
 
   private static final int WINDOW_SIZE = 10;
+
+  private static final Map<Integer, Integer> store = new HashMap<>();
 
   public static void main(String[] args) throws InterruptedException, TimeoutException, StreamingQueryException {
 
@@ -102,9 +96,9 @@ public class SSReconProcessor {
 
         while (values.hasNext()) {
           AccountWrapper accountWrapper = values.next();
-          System.out.println("For each remaining => " + accountWrapper);
           currentWindowState++;
         }
+        store.put(key, currentWindowState * 10);
         state.update(currentWindowState);
 
         if (currentWindowState != 10) {
@@ -137,7 +131,7 @@ public class SSReconProcessor {
 
     StreamingQuery console = windowResultDataset
                                  .select(col("_1").alias("key"), col("_2").alias("count"))
-//                                 .filter((FilterFunction<WindowResult>) Objects::nonNull)
+                                 .filter(col("count").equalTo(10))
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
