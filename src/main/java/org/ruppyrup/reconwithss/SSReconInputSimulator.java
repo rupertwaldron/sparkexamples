@@ -15,6 +15,8 @@ import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
+import static org.ruppyrup.reconwithss.SSReconProcessor.WINDOW_SIZE;
+
 public class SSReconInputSimulator {
 
   private static final Random rand = new Random();
@@ -27,11 +29,11 @@ public class SSReconInputSimulator {
     Producer<Integer, String> producer = createProducer();
     List<CompletableFuture<Void>> cfs = new ArrayList<>();
 
-    long sendMessageCount = 10;
+    long sendMessageCount = WINDOW_SIZE;
 
     String topic = "reconreplay";
 
-    for (int i = 1; i < 11; i++) {
+    for (int i = 1; i < 101; i++) {
 
       int id= i;
       cfs.add(CompletableFuture.runAsync(() -> {
