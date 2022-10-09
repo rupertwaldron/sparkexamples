@@ -1,11 +1,17 @@
 package org.ruppyrup.reconwithss;
 
+import org.apache.kafka.common.record.TimestampType;
+
 import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 public class AccountWrapper implements Serializable {
   private Account account;
   private int windowId;
   private int counter;
+
+  private String timestamp;
 
   public AccountWrapper() {
   }
@@ -14,6 +20,7 @@ public class AccountWrapper implements Serializable {
     this.account = account;
     this.windowId = windowId;
     this.counter = counter;
+    this.timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSS"));
   }
 
   public Account getAccount() {
@@ -40,12 +47,21 @@ public class AccountWrapper implements Serializable {
     this.counter = counter;
   }
 
+  public String getTimestamp() {
+    return timestamp;
+  }
+
+  public void setTimestamp(final String timestamp) {
+    this.timestamp = timestamp;
+  }
+
   @Override
   public String toString() {
     return "AccountWrapper{" +
                "account=" + account +
                ", windowId=" + windowId +
                ", counter=" + counter +
+               ", timestamp=" + timestamp +
                '}';
   }
 }

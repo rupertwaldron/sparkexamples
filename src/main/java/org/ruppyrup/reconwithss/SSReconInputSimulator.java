@@ -33,7 +33,7 @@ public class SSReconInputSimulator {
 
     String topic = "reconreplay";
 
-    for (int i = 1; i < 101; i++) {
+    for (int i = 1; i < 11; i++) {
 
       int id= i;
       cfs.add(CompletableFuture.runAsync(() -> {
