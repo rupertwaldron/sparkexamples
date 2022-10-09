@@ -2,42 +2,26 @@ package org.ruppyrup.reconwithss;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
-import org.apache.spark.api.java.function.FilterFunction;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.api.java.function.MapGroupsWithStateFunction;
-import org.apache.spark.api.java.function.ReduceFunction;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoder;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.KeyValueGroupedDataset;
-import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
-import org.apache.spark.sql.streaming.GroupState;
 import org.apache.spark.sql.streaming.OutputMode;
 import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.StreamingQueryException;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import scala.Function1;
-import scala.Tuple2;
 import scala.Tuple3;
-import scala.reflect.api.TypeTags;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 
-import static org.apache.spark.sql.functions.callUDF;
 import static org.apache.spark.sql.functions.col;
-import static org.apache.spark.sql.functions.concat_ws;
-import static org.codehaus.commons.compiler.samples.DemoBase.explode;
 
 public class SSReconProcessor {
 
@@ -115,7 +99,6 @@ public class SSReconProcessor {
                                  .flatMap(tuple3AccountWrapperFlatMapFunction, Encoders.bean(AccountWrapper.class))
                                  .withColumn("key", col("windowId").cast(DataTypes.StringType))
                                  .withColumn("value", functions.to_json(col("account")))
-//                                 .withColumn("value", col("account").cast(DataTypes.StringType))
                                  .writeStream()
                                  .format("kafka")
                                  .option("kafka.bootstrap.servers", "localhost:9092")
