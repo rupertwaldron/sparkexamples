@@ -3,20 +3,19 @@ package org.ruppyrup.twitter;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.apache.spark.sql.streaming.OutputMode;
 import org.apache.spark.sql.streaming.StreamingQuery;
-import org.apache.spark.sql.streaming.StreamingQueryException;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
 
+import java.util.Date;
+
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.desc;
-import static org.apache.spark.sql.functions.lit;
-import static org.apache.spark.sql.functions.round;
-import static org.apache.spark.sql.functions.sum;
 
 public class TwitterProcessor {
 
@@ -26,63 +25,55 @@ public class TwitterProcessor {
 
     SparkSession session = SparkSession.builder()
                                .master("local[*]")
-                               .appName("structuredViewingReport")
+                               .appName("structuredTwitter")
+                               .config("spark.sql.streaming.checkpointLocation", "./rdds")
                                .getOrCreate();
 
-    StructType schema = new StructType()
-                            .add("created_at", DataTypes.DateType, true)
+    StructType twitterSchema = new StructType()
+                            .add("created_at", DataTypes.StringType, true)
                             .add("id", DataTypes.LongType, true)
                             .add("id_str", DataTypes.StringType, true)
                             .add("text", DataTypes.StringType, true);
 
 
-    Dataset<Row> df = session.readStream()
+    Dataset<TwitterDto> df = session.readStream()
                           .format("kafka")
                           .option("kafka.bootstrap.servers", "localhost:9092")
                           .option("subscribe", "twitter_tweets")
-                          .load();
+                          .load() .selectExpr("CAST(value AS STRING) as message")
+                          .select(functions.from_json(col("message"), twitterSchema).as("json"))
+                          .select("json.*")
+                          .as(Encoders.bean(TwitterDto.class));
 
 
-    df.createOrReplaceTempView("viewing_figures");
-//    sourceData.createOrReplaceTempView("viewing_figures");
-
-    // key, value, timestamp
-    Dataset<Row> results =
-        session.sql("select cast (value as string) as course_name, sum(5) as seconds_watched from viewing_figures group by course_name order by seconds_watched desc");
-
-//    StreamingQuery query = results.writeStream()
-//                               .format("console")
-//                               .outputMode(OutputMode.Complete())
-//                               .start();
+    session.udf().register("hashtag", (String text) -> {
+      String[] split = text.split(" ");
+      for (String s : split) {
+        if (s.startsWith("@")) {
+          return s;
+        }
+      }
+      return "No tag";
+    }, DataTypes.StringType);
 
     Dataset<Row> javaApi = df
-                               .withColumn("total", lit(5))
-                               .select(
-                                   col("value").cast(DataTypes.StringType).alias("course_name"),
-                                   col("total")
-                               )
-                               .groupBy(col("course_name"))
-//                               .pivot(col("total"))
+                               .withColumn("hashtag", functions.callUDF("hashtag", col("text")))
+                               .filter(col("hashtag").notEqual("No tag"))
+                               .groupBy(col("hashtag"))
                                .agg(
-                                   round(sum(col("total")), 2).alias("score")
+                                   functions.count(col("hashtag")).alias("@ Count")
                                )
-                               .sort(desc("score"));
+                               .sort(desc("@ Count"));
+//
+//    Dataset<Row> stringDataset = df
+//                                     .select(col("value").cast(DataTypes.StringType));
 
-    Dataset<Row> stringDataset = df
-                                     .select(col("value").cast(DataTypes.StringType));
 
-
-//    StreamingQuery console = results
-//                                 .writeStream()
-//                                 .format("console")
-//                                 .outputMode(OutputMode.Complete())
-//                                 .start();
-
-    StreamingQuery console = stringDataset
+    StreamingQuery console = javaApi
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
-                                 .outputMode(OutputMode.Update())
+                                 .outputMode(OutputMode.Complete())
                                  .start();
 
     console.awaitTermination();
