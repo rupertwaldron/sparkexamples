@@ -14,6 +14,7 @@ import org.apache.spark.sql.types.StructType;
 
 import java.util.Date;
 
+import static org.apache.spark.sql.functions.*;
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.desc;
 
@@ -27,23 +28,26 @@ public class TwitterProcessor {
                                .master("local[*]")
                                .appName("structuredTwitter")
                                .config("spark.sql.streaming.checkpointLocation", "./rdds")
+                               .config("spark.sql.legacy.timeParserPolicy", "LEGACY")
+                               .config("spark.sql.shuffle.partitions", "10")
                                .getOrCreate();
 
     StructType twitterSchema = new StructType()
-                            .add("created_at", DataTypes.StringType, true)
-                            .add("id", DataTypes.LongType, true)
-                            .add("id_str", DataTypes.StringType, true)
-                            .add("text", DataTypes.StringType, true);
+                                   .add("created_at", DataTypes.StringType, true)
+                                   .add("id", DataTypes.LongType, true)
+                                   .add("id_str", DataTypes.StringType, true)
+                                   .add("text", DataTypes.StringType, true);
 
 
     Dataset<TwitterDto> df = session.readStream()
-                          .format("kafka")
-                          .option("kafka.bootstrap.servers", "localhost:9092")
-                          .option("subscribe", "twitter_tweets")
-                          .load() .selectExpr("CAST(value AS STRING) as message")
-                          .select(functions.from_json(col("message"), twitterSchema).as("json"))
-                          .select("json.*")
-                          .as(Encoders.bean(TwitterDto.class));
+                                 .format("kafka")
+                                 .option("kafka.bootstrap.servers", "localhost:9092")
+                                 .option("subscribe", "twitter_tweets")
+                                 .load()
+                                 .selectExpr("CAST(value AS STRING) as message")
+                                 .select(from_json(col("message"), twitterSchema).as("json"))
+                                 .select("json.*")
+                                 .as(Encoders.bean(TwitterDto.class));
 
 
     session.udf().register("hashtag", (String text) -> {
@@ -55,15 +59,21 @@ public class TwitterProcessor {
       }
       return "No tag";
     }, DataTypes.StringType);
-
     Dataset<Row> javaApi = df
-                               .withColumn("hashtag", functions.callUDF("hashtag", col("text")))
+                               .withColumn("timestamp", to_timestamp(col("created_at"), "EEE MMM d HH:mm:ss Z yyyy" ))
+                               .withColumn("hashtag", callUDF("hashtag", col("text")))
                                .filter(col("hashtag").notEqual("No tag"))
-                               .groupBy(col("hashtag"))
+                               .withWatermark("timestamp", "2 minutes") // for use with windowing so discard old data and don't hold state
+                               .groupBy(
+                                   functions.window(col("timestamp"), "1 minutes"),
+                                   col("hashtag"))
                                .agg(
-                                   functions.count(col("hashtag")).alias("@ Count")
+                                   count(col("hashtag")).alias("@ Count")
                                )
-                               .sort(desc("@ Count"));
+                               .sort(desc("@ Count"))
+                               .limit(20);
+
+
 //
 //    Dataset<Row> stringDataset = df
 //                                     .select(col("value").cast(DataTypes.StringType));
@@ -73,6 +83,7 @@ public class TwitterProcessor {
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
+                                 .option("numrows", 50)
                                  .outputMode(OutputMode.Complete())
                                  .start();
 
