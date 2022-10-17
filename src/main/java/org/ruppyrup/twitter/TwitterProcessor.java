@@ -9,10 +9,12 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.apache.spark.sql.streaming.OutputMode;
 import org.apache.spark.sql.streaming.StreamingQuery;
+import org.apache.spark.sql.streaming.Trigger;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
 
 import java.util.Date;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.spark.sql.functions.*;
 import static org.apache.spark.sql.functions.col;
@@ -60,18 +62,23 @@ public class TwitterProcessor {
       return "No tag";
     }, DataTypes.StringType);
     Dataset<Row> javaApi = df
-                               .withColumn("timestamp", to_timestamp(col("created_at"), "EEE MMM d HH:mm:ss Z yyyy" ))
+                               .withColumn("timestamp", to_timestamp(col("created_at"), "EEE MMM d HH:mm:ss Z yyyy"))
                                .withColumn("hashtag", callUDF("hashtag", col("text")))
                                .filter(col("hashtag").notEqual("No tag"))
-                               .withWatermark("timestamp", "2 minutes") // for use with windowing so discard old data and don't hold state
+                               .withWatermark("timestamp", "10 hours") // for use with windowing so discard old data and don't hold state
                                .groupBy(
-                                   functions.window(col("timestamp"), "1 minutes"),
+                                   functions.window(col("timestamp"), "5 minutes"),
                                    col("hashtag"))
-                               .agg(
-                                   count(col("hashtag")).alias("@ Count")
-                               )
-                               .sort(desc("@ Count"))
+                               .count()
+//                               .orderBy(col("window.start").desc(), col("count").desc())
+//                               .sort(desc("window"))
+                               .sort(desc("count"))
                                .limit(20);
+//                               .agg(
+//                                   count(col("hashtag")).alias("@ Count")
+//                               )
+//                               .sort(desc("@ Count"))
+//                               .limit(20);
 
 
 //
@@ -83,7 +90,8 @@ public class TwitterProcessor {
                                  .writeStream()
                                  .format("console")
                                  .option("truncate", false)
-                                 .option("numrows", 50)
+                                 .trigger(Trigger.ProcessingTime(5, TimeUnit.MINUTES))
+//                                 .option("numrows", 20)
                                  .outputMode(OutputMode.Complete())
                                  .start();
 
