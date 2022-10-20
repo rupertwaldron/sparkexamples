@@ -24,8 +24,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ReconProcessor {
+
+  private static final Map<Integer, ReconUnit> staticState = new ConcurrentHashMap<>();
 
   public static void main(String[] args) throws InterruptedException {
 
@@ -54,6 +57,23 @@ public class ReconProcessor {
         ConsumerStrategies.Subscribe(topics, params)
     );
 
+    Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> staticStateFunction = (key, values, state) -> {
+
+      ReconUnit reconUnit = staticState.computeIfAbsent(key, k -> new ReconUnit(windowSize));
+
+      if (values.isPresent()) {
+        reconUnit.addEvent(values.get());
+        staticState.put(key, reconUnit);
+      }
+
+      if (!reconUnit.isComplete()) {
+        return new Tuple2<>(key, Optional.empty());
+      } else {
+        staticState.remove(key);
+        return new Tuple2<>(key, Optional.of(new ReconResult(reconUnit, "Completed")));
+      }
+    };
+
     Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> mapWithStateFunction = (key, values, state) -> {
 
       ReconUnit reconUnit = state.getOption().getOrElse(() -> new ReconUnit(windowSize));
@@ -75,9 +95,9 @@ public class ReconProcessor {
         return new Tuple2<>(key, Optional.of(new ReconResult(reconUnit, "Completed")));
       }
     };
-    List<JavaPairDStream<Integer, ReconResult>> timeoutStream = new ArrayList<>();
 
-    createTimeoutStreams(stream, mapWithStateFunction, timeoutStream);
+
+    JavaPairDStream<Integer, ReconResult> reconResults = createTimeoutStreams(stream, mapWithStateFunction);
 
 
 //        .mapWithState(StateSpec.function(mapWithStateFunction).timeout(Durations.seconds(30)));
@@ -87,7 +107,7 @@ public class ReconProcessor {
 //                                                                          .filter(item -> item._2.isComplete())
 //                                                                          .transform(rows -> rows.distinct())
 //                                                                          .mapToPair(item -> new Tuple2<>(item._1, item._2.getEventCount()));
-    timeoutStream.forEach(stuff-> stuff.print(50));
+    reconResults.print(50);
 
 //    integerIntegerJavaPairDStream.print();
 
@@ -97,10 +117,9 @@ public class ReconProcessor {
     sparkStreamingContext.awaitTermination();
   }
 
-  private static void createTimeoutStreams(
-      final JavaInputDStream<ConsumerRecord<Integer, String>> stream, final Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> mapWithStateFunction,
-      final List<JavaPairDStream<Integer, ReconResult>> timeoutStreams) {
-    List.of(300, 600, 900).forEach(timeout -> {
+  private static JavaPairDStream<Integer, ReconResult> createTimeoutStreams(
+      final JavaInputDStream<ConsumerRecord<Integer, String>> stream, final Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> mapWithStateFunction) {
+
       JavaPairDStream<Integer, Event> eventsStream = stream
                                                          .transformToPair(rdd -> rdd.mapPartitionsToPair(iterator -> {
                                                                final List<Tuple2<Integer, Optional<Event>>> ret = new ArrayList<>();
@@ -112,15 +131,11 @@ public class ReconProcessor {
 //                                                                                   .filter(v1 -> v1._2.isPresent())
                                                                                      .mapValues(Optional::get));
 
-      var resultsStream = eventsStream
+      return eventsStream
                               .mapWithState(StateSpec.function(mapWithStateFunction)
-                                                .timeout(Durations.seconds(timeout)))
+                                                .timeout(Durations.seconds(60)))
                               .filter(item -> item._2.isPresent())
                               .mapToPair(item -> new Tuple2<>(item._1, item._2.get()));
 
-
-      timeoutStreams.add(resultsStream);
-
-    });
   }
 }

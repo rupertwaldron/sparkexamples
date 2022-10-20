@@ -33,7 +33,7 @@ public class SSReconInputSimulator {
 
     String topic = "reconreplay";
 
-    for (int i = 1; i < 101; i++) {
+    for (int i = 1; i < 10001; i++) {
 
       int id= i;
       cfs.add(CompletableFuture.runAsync(() -> {
@@ -75,7 +75,7 @@ public class SSReconInputSimulator {
               "meta(partition=%d, offset=%d)\n",
           dataToSend.key(), dataToSend.value(), metadata.partition(), metadata.offset());
 
-      Thread.sleep(rand.nextInt(1000));
+      Thread.sleep(rand.nextInt(1));
     }
   }
 
