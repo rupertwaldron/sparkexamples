@@ -8,6 +8,7 @@ import java.util.List;
 public class ReconUnit implements Serializable {
 
   private final int windowSize;
+  private boolean timedOut;
 
 
   private final List<Event> allEvents = new ArrayList<>();
@@ -30,6 +31,14 @@ public class ReconUnit implements Serializable {
 
   public int getEventCount() {
     return allEvents.size();
+  }
+
+  public boolean hasTimedOut() {
+    return timedOut;
+  }
+
+  public void setTimedOut(boolean timedOut) {
+    this.timedOut = timedOut;
   }
 
   @Override

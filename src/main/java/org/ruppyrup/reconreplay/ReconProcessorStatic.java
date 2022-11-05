@@ -24,8 +24,14 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-public class ReconProcessor {
+public class ReconProcessorStatic {
+
+  private static final Map<Integer, ReconUnit> staticState = new ConcurrentHashMap<>();
 
   public static void main(String[] args) throws InterruptedException {
 
@@ -54,32 +60,37 @@ public class ReconProcessor {
         ConsumerStrategies.Subscribe(topics, params)
     );
 
-    Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> mapWithStateFunction = (key, values, state) -> {
+    Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> staticStateFunction = (key, values, state) -> {
 
-      ReconUnit reconUnit = state.getOption().getOrElse(() -> new ReconUnit(windowSize));
+      ReconUnit reconUnit = staticState.computeIfAbsent(key, k -> {
+        ReconUnit ru1 = new ReconUnit(windowSize);
+        CompletableFuture.runAsync(() -> Executors.newScheduledThreadPool(1).scheduleWithFixedDelay(
+            () -> ru1.setTimedOut(true),
+            0, 60, TimeUnit.SECONDS)
+        );
+        return ru1;
+      });
 
-      if (state.isTimingOut()) {
-        ReconResult reconResult = new ReconResult(reconUnit, key + " is timing out");
-        return new Tuple2<>(key, Optional.of(reconResult));
-      }
+      if (reconUnit.hasTimedOut())
+        staticState.remove(key);
 
+      System.out.println("Hashmap size = " + staticState.size());
       printMemory();
 
       if (values.isPresent()) {
         reconUnit.addEvent(values.get());
-        state.update(reconUnit);
+        staticState.put(key, reconUnit);
       }
 
       if (!reconUnit.isComplete()) {
         return new Tuple2<>(key, Optional.empty());
       } else {
-        state.remove();
+        staticState.remove(key);
         return new Tuple2<>(key, Optional.of(new ReconResult(reconUnit, "Completed")));
       }
     };
 
-
-    JavaPairDStream<Integer, ReconResult> reconResults = createTimeoutStreams(stream, mapWithStateFunction);
+    JavaPairDStream<Integer, ReconResult> reconResults = createTimeoutStreams(stream, staticStateFunction);
 
 
 //        .mapWithState(StateSpec.function(mapWithStateFunction).timeout(Durations.seconds(30)));
@@ -102,22 +113,22 @@ public class ReconProcessor {
   private static JavaPairDStream<Integer, ReconResult> createTimeoutStreams(
       final JavaInputDStream<ConsumerRecord<Integer, String>> stream, final Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> mapWithStateFunction) {
 
-    JavaPairDStream<Integer, Event> eventsStream = stream
-                                                       .transformToPair(rdd -> rdd.mapPartitionsToPair(iterator -> {
-                                                             final List<Tuple2<Integer, Optional<Event>>> ret = new ArrayList<>();
-                                                             iterator.forEachRemaining(consumerRecord -> ret.add(
-                                                                 new Tuple2<>(consumerRecord.key(), Optional.of(new Event(consumerRecord)))
-                                                             ));
-                                                             return ret.iterator();
-                                                           })
+      JavaPairDStream<Integer, Event> eventsStream = stream
+                                                         .transformToPair(rdd -> rdd.mapPartitionsToPair(iterator -> {
+                                                               final List<Tuple2<Integer, Optional<Event>>> ret = new ArrayList<>();
+                                                               iterator.forEachRemaining(consumerRecord -> ret.add(
+                                                                   new Tuple2<>(consumerRecord.key(), Optional.of(new Event(consumerRecord)))
+                                                               ));
+                                                               return ret.iterator();
+                                                             })
 //                                                                                   .filter(v1 -> v1._2.isPresent())
-                                                                                   .mapValues(Optional::get));
+                                                                                     .mapValues(Optional::get));
 
-    return eventsStream
-               .mapWithState(StateSpec.function(mapWithStateFunction)
-                                 .timeout(Durations.seconds(60)))
-               .filter(item -> item._2.isPresent())
-               .mapToPair(item -> new Tuple2<>(item._1, item._2.get()));
+      return eventsStream
+                              .mapWithState(StateSpec.function(mapWithStateFunction)
+                                                .timeout(Durations.seconds(60)))
+                              .filter(item -> item._2.isPresent())
+                              .mapToPair(item -> new Tuple2<>(item._1, item._2.get()));
 
   }
 
