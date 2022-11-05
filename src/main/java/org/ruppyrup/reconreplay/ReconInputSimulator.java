@@ -17,11 +17,11 @@ public class ReconInputSimulator {
     Producer<Integer, String> producer = createProducer();
     List<CompletableFuture<Void>> cfs = new ArrayList<>();
 
-    long sendMessageCount = 100;
+    long sendMessageCount = Long.parseLong(System.getProperty("simulatorWindowSetting"));
 
     String topic = "reconreplay";
 
-    for (int i = 1; i < 10001; i++) {
+    for (int i = 1; i < 101; i++) {
 
       int id= i;
       cfs.add(CompletableFuture.runAsync(() -> {
@@ -55,7 +55,7 @@ public class ReconInputSimulator {
               "meta(partition=%d, offset=%d)\n",
           dataToSend.key(), dataToSend.value(), metadata.partition(), metadata.offset());
 
-      Thread.sleep((long) (Math.random() * 1));
+      Thread.sleep((long) (Math.random() * 100));
     }
   }
 
