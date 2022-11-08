@@ -27,9 +27,12 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class ReconProcessorStaticOld {
+public class ReconProcessorStaticLRUCache {
 
   private static final Map<Integer, ReconUnit> staticState = new ConcurrentHashMap<>();
+  private static final LRUCache finishedIds = new LRUCache(1000);
+
+  private static final List<Integer> finishedList = new ArrayList<>();
 
   public static void main(String[] args) throws InterruptedException {
 
@@ -60,6 +63,14 @@ public class ReconProcessorStaticOld {
 
     Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> staticStateFunction = (key, values, state) -> {
 
+      if (finishedIds.get(key) != null) {
+//      if (finishedList.contains(key)) {
+        System.out.println("WindowId has finished :: " + key);
+        staticState.remove(key);
+        System.out.println("Hashmap size = " + staticState.size());
+        return new Tuple2<>(key, Optional.empty());
+      }
+
       ReconUnit reconUnit = staticState.computeIfAbsent(key, k -> {
         ReconUnit ru1 = new ReconUnit(windowSize);
         CompletableFuture.runAsync(() -> {
@@ -78,13 +89,15 @@ public class ReconProcessorStaticOld {
 
 
 
-      if (reconUnit.hasTimedOut().get()) {
+      if (reconUnit.hasTimedOut()) {
+//        finishedList.add(key);
+        finishedIds.put(key);
         System.out.println("Hashmap size = " + staticState.size());
         return new Tuple2<>(key, Optional.empty());
       }
 
 
-      printMemory();
+//      printMemory();
 
       if (values.isPresent()) {
         reconUnit.addEvent(values.get());
@@ -96,6 +109,8 @@ public class ReconProcessorStaticOld {
         return new Tuple2<>(key, Optional.empty());
       } else {
         staticState.remove(key);
+        finishedIds.put(key);
+//        finishedList.add(key);
         System.out.println("Hashmap size = " + staticState.size());
         return new Tuple2<>(key, Optional.of(new ReconResult(reconUnit, "Completed")));
       }

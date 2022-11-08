@@ -12,6 +12,7 @@ import org.apache.spark.api.java.function.Function3;
 import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.State;
 import org.apache.spark.streaming.StateSpec;
+import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaInputDStream;
 import org.apache.spark.streaming.api.java.JavaPairDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
@@ -22,26 +23,22 @@ import scala.Tuple2;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class ReconProcessorStatic {
 
   private static final Map<Integer, ReconUnit> staticState = new ConcurrentHashMap<>();
-  private static final LRUCache finishedIds = new LRUCache(1000);
-
-  private static final List<Integer> finishedList = new ArrayList<>();
+  private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
   public static void main(String[] args) throws InterruptedException {
 
     long duration = 1;
-    int windowSize = 100;
+    int windowSize = 10;
     Logger.getRootLogger().setLevel(Level.WARN);
     Logger.getLogger("org").setLevel(Level.WARN);
     SparkConf conf = new SparkConf().setAppName("reconviewer").setMaster("local[*]");
@@ -67,37 +64,17 @@ public class ReconProcessorStatic {
 
     Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> staticStateFunction = (key, values, state) -> {
 
-      if (finishedIds.get(key) != null) {
-//      if (finishedList.contains(key)) {
-        System.out.println("WindowId has finished :: " + key);
-        staticState.remove(key);
-        System.out.println("Hashmap size = " + staticState.size());
-        return new Tuple2<>(key, Optional.empty());
-      }
-
       ReconUnit reconUnit = staticState.computeIfAbsent(key, k -> {
         ReconUnit ru1 = new ReconUnit(windowSize);
-        CompletableFuture.runAsync(() -> {
-              try {
-                System.out.println("Setting time out for -> " + key + " values = " + values);
-                Thread.sleep(1000);
-                System.out.println(key + " has timed out");
-                ru1.setTimedOut();
-              } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-              }
-            }
-        );
+        scheduler.schedule(() -> processTimeout(k), 5, TimeUnit.SECONDS);
         return ru1;
       });
 
 
-
-      if (reconUnit.hasTimedOut().get()) {
-//        finishedList.add(key);
-        finishedIds.put(key);
-        System.out.println("Hashmap size = " + staticState.size());
-        return new Tuple2<>(key, Optional.empty());
+      if (reconUnit.hasTimedOut()) {
+        System.out.println("Timeout Hashmap size = " + staticState.size());
+        staticState.remove(key);
+        return new Tuple2<>(key, Optional.of(new ReconResult(reconUnit, "Timed out")));
       }
 
 
@@ -113,14 +90,25 @@ public class ReconProcessorStatic {
         return new Tuple2<>(key, Optional.empty());
       } else {
         staticState.remove(key);
-        finishedIds.put(key);
-//        finishedList.add(key);
         System.out.println("Hashmap size = " + staticState.size());
         return new Tuple2<>(key, Optional.of(new ReconResult(reconUnit, "Completed")));
       }
     };
 
-    JavaPairDStream<Integer, ReconResult> reconResults = createTimeoutStreams(stream, staticStateFunction);
+    JavaDStream<Tuple2<Integer, Optional<ReconResult>>> reconResults = createTimeoutStreams(stream, staticStateFunction);
+
+//    JavaPairDStream<Integer, ReconResult> processedEvents = reconResults
+//                                                                                  .mapWithState(StateSpec.function(staticStateFunction))
+//                                                                                  .filter(item -> item._2.isPresent())
+//                                                                                  .mapToPair(item -> new Tuple2<>(item._1, item._2.get()));
+
+    JavaPairDStream<Integer, ReconResult> timedOutEvents = reconResults
+                                                                .filter(item -> item._2.get().getReconUnit().hasTimedOut())
+                                                                .mapToPair(item -> new Tuple2<>(item._1, item._2.get()));
+
+    JavaPairDStream<Integer, ReconResult> processedEvents = reconResults
+                                                               .filter(item -> !item._2.get().getReconUnit().hasTimedOut())
+                                                               .mapToPair(item -> new Tuple2<>(item._1, item._2.get()));
 
 
 //        .mapWithState(StateSpec.function(mapWithStateFunction).timeout(Durations.seconds(30)));
@@ -130,7 +118,8 @@ public class ReconProcessorStatic {
 //                                                                          .filter(item -> item._2.isComplete())
 //                                                                          .transform(rows -> rows.distinct())
 //                                                                          .mapToPair(item -> new Tuple2<>(item._1, item._2.getEventCount()));
-    reconResults.print(50);
+    processedEvents.print(50);
+    timedOutEvents.print(50);
 
 //    integerIntegerJavaPairDStream.print();
 
@@ -140,25 +129,23 @@ public class ReconProcessorStatic {
     sparkStreamingContext.awaitTermination();
   }
 
-  private static JavaPairDStream<Integer, ReconResult> createTimeoutStreams(
+  private static JavaDStream<Tuple2<Integer, Optional<ReconResult>>> createTimeoutStreams(
       final JavaInputDStream<ConsumerRecord<Integer, String>> stream, final Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> mapWithStateFunction) {
 
-      JavaPairDStream<Integer, Event> eventsStream = stream
-                                                         .transformToPair(rdd -> rdd.mapPartitionsToPair(iterator -> {
-                                                               final List<Tuple2<Integer, Optional<Event>>> ret = new ArrayList<>();
-                                                               iterator.forEachRemaining(consumerRecord -> ret.add(
-                                                                   new Tuple2<>(consumerRecord.key(), Optional.of(new Event(consumerRecord)))
-                                                               ));
-                                                               return ret.iterator();
-                                                             })
+    JavaPairDStream<Integer, Event> eventsStream = stream
+                                                       .transformToPair(rdd -> rdd.mapPartitionsToPair(iterator -> {
+                                                             final List<Tuple2<Integer, Optional<Event>>> ret = new ArrayList<>();
+                                                             iterator.forEachRemaining(consumerRecord -> ret.add(
+                                                                 new Tuple2<>(consumerRecord.key(), Optional.of(new Event(consumerRecord)))
+                                                             ));
+                                                             return ret.iterator();
+                                                           })
 //                                                                                   .filter(v1 -> v1._2.isPresent())
-                                                                                     .mapValues(Optional::get));
+                                                                                   .mapValues(Optional::get));
 
-      return eventsStream
-                              .mapWithState(StateSpec.function(mapWithStateFunction)
-                                                .timeout(Durations.seconds(60)))
-                              .filter(item -> item._2.isPresent())
-                              .mapToPair(item -> new Tuple2<>(item._1, item._2.get()));
+    return eventsStream
+               .mapWithState(StateSpec.function(mapWithStateFunction))
+               .filter(item -> item._2.isPresent());
 
   }
 
@@ -168,5 +155,12 @@ public class ReconProcessorStatic {
     long freeMemory = runtime.freeMemory();
 
     System.out.println("Memory: Used=" + (totalMemory - freeMemory) + " Total=" + totalMemory + " Free=" + freeMemory);
+  }
+
+  private static void processTimeout(Integer windowId) {
+    ReconUnit reconUnit = staticState.get(windowId);
+    System.out.println("Processing timeout of window Id :: " + windowId + " reconunit = " + reconUnit);
+    if (reconUnit != null)
+      reconUnit.setTimedOut();
   }
 }

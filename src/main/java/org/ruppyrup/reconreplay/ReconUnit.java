@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ReconUnit implements Serializable {
 
   private final int windowSize;
-  private final AtomicBoolean timedOut = new AtomicBoolean(false);
+  private boolean timedOut = false;
 
 
   private final List<Event> allEvents = new ArrayList<>();
@@ -34,12 +34,12 @@ public class ReconUnit implements Serializable {
     return allEvents.size();
   }
 
-  public AtomicBoolean hasTimedOut() {
+  public synchronized Boolean hasTimedOut() {
     return timedOut;
   }
 
   public synchronized void setTimedOut() {
-    timedOut.set(true);
+    timedOut = true;
   }
 
   @Override

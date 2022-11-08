@@ -18,4 +18,8 @@ public class ReconResult implements Serializable {
                ", reconNotification='" + reconNotification + '\'' +
                '}';
   }
+
+  public ReconUnit getReconUnit() {
+    return reconUnit;
+  }
 }
