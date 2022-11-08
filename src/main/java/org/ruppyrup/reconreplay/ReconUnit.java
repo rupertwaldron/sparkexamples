@@ -4,11 +4,12 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ReconUnit implements Serializable {
 
   private final int windowSize;
-  private boolean timedOut;
+  private final AtomicBoolean timedOut = new AtomicBoolean(false);
 
 
   private final List<Event> allEvents = new ArrayList<>();
@@ -33,12 +34,12 @@ public class ReconUnit implements Serializable {
     return allEvents.size();
   }
 
-  public boolean hasTimedOut() {
+  public AtomicBoolean hasTimedOut() {
     return timedOut;
   }
 
-  public void setTimedOut(boolean timedOut) {
-    this.timedOut = timedOut;
+  public synchronized void setTimedOut() {
+    timedOut.set(true);
   }
 
   @Override
