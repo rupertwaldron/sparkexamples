@@ -25,61 +25,74 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Does the main processing for Recon Agent
+ */
 public class ReconProcessor {
 
-  public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) throws InterruptedException {
 
-    long duration = 1;
-    int windowSize = 100;
-    Logger.getRootLogger().setLevel(Level.WARN);
-    Logger.getLogger("org").setLevel(Level.WARN);
-    SparkConf conf = new SparkConf().setAppName("reconviewer").setMaster("local[*]");
+        long duration = 1;
+        int windowSize = 10;
+        Logger.getRootLogger().setLevel(Level.WARN);
+        Logger.getLogger("org").setLevel(Level.WARN);
+        SparkConf conf = new SparkConf().setAppName("reconviewer").setMaster("local[*]");
 
-    JavaStreamingContext sparkStreamingContext = new JavaStreamingContext(conf, Durations.seconds(duration));
-    sparkStreamingContext.checkpoint("./rdds");
+        JavaStreamingContext sparkStreamingContext = new JavaStreamingContext(conf, Durations.seconds(duration));
+        sparkStreamingContext.checkpoint("./rdds");
 
-    List<String> topics = Arrays.asList("reconreplay");
+        List<String> topics = Arrays.asList("reconreplay");
 
-    Map<String, Object> params = Map.of(
-        "bootstrap.servers", "localhost:9092",
-        "key.deserializer", IntegerDeserializer.class,
-        "value.deserializer", StringDeserializer.class,
-        "group.id", "spark_group",
-        "auto.offset.reset", "latest",
-        "enable.auto.commit", false);
+    /*
+      Set up parms to get key and value off kafka topic
+     */
+        Map<String, Object> params = Map.of(
+                "bootstrap.servers", "localhost:9092",
+                "key.deserializer", IntegerDeserializer.class,
+                "value.deserializer", StringDeserializer.class,
+                "group.id", "spark_group",
+                "auto.offset.reset", "latest",
+                "enable.auto.commit", false);
 
-    JavaInputDStream<ConsumerRecord<Integer, String>> stream = KafkaUtils.createDirectStream(
-        sparkStreamingContext,
-        LocationStrategies.PreferConsistent(),
-        ConsumerStrategies.Subscribe(topics, params)
-    );
+        /*
+          Create DStream
+         */
+        JavaInputDStream<ConsumerRecord<Integer, String>> stream = KafkaUtils.createDirectStream(
+                sparkStreamingContext,
+                LocationStrategies.PreferConsistent(),
+                ConsumerStrategies.Subscribe(topics, params)
+        );
 
-    Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> mapWithStateFunction = (key, values, state) -> {
+        /*
+         * Create a map with state function
+         * Gets the state for the given key and updates with the latest set of values
+         */
+        Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> mapWithStateFunction = (key, values, state) -> {
 
-      ReconUnit reconUnit = state.getOption().getOrElse(() -> new ReconUnit(windowSize));
+            ReconUnit reconUnit = state.getOption().getOrElse(() -> new ReconUnit(windowSize));
 
-      if (state.isTimingOut()) {
-        ReconResult reconResult = new ReconResult(reconUnit, key + " is timing out");
-        return new Tuple2<>(key, Optional.of(reconResult));
-      }
+            if (state.isTimingOut()) {
+                ReconResult reconResult = new ReconResult(reconUnit, key + " is timing out");
+                return new Tuple2<>(key, Optional.of(reconResult));
+            }
 
-      printMemory();
+//      printMemory();
 
-      if (values.isPresent()) {
-        reconUnit.addEvent(values.get());
-        state.update(reconUnit);
-      }
+            if (values.isPresent()) {
+                reconUnit.addEvent(values.get());
+                state.update(reconUnit);
+            }
 
-      if (!reconUnit.isComplete()) {
-        return new Tuple2<>(key, Optional.empty());
-      } else {
-        state.remove();
-        return new Tuple2<>(key, Optional.of(new ReconResult(reconUnit, "Completed")));
-      }
-    };
+            if (!reconUnit.isComplete()) {
+                return new Tuple2<>(key, Optional.empty());
+            } else {
+                state.remove();
+                return new Tuple2<>(key, Optional.of(new ReconResult(reconUnit, "Completed")));
+            }
+        };
 
 
-    JavaPairDStream<Integer, ReconResult> reconResults = createTimeoutStreams(stream, mapWithStateFunction);
+        JavaPairDStream<Integer, ReconResult> reconResults = createTimeoutStreams(stream, mapWithStateFunction);
 
 
 //        .mapWithState(StateSpec.function(mapWithStateFunction).timeout(Durations.seconds(30)));
@@ -89,43 +102,52 @@ public class ReconProcessor {
 //                                                                          .filter(item -> item._2.isComplete())
 //                                                                          .transform(rows -> rows.distinct())
 //                                                                          .mapToPair(item -> new Tuple2<>(item._1, item._2.getEventCount()));
-    reconResults.print(50);
+        reconResults.print(50);
 
 //    integerIntegerJavaPairDStream.print();
 
 //    integerIntegerJavaPairDStream.foreachRDD(rdd -> System.out.println(rdd.toDebugString()));
 
-    sparkStreamingContext.start();
-    sparkStreamingContext.awaitTermination();
-  }
+        sparkStreamingContext.start();
+        sparkStreamingContext.awaitTermination();
+    }
 
-  private static JavaPairDStream<Integer, ReconResult> createTimeoutStreams(
-      final JavaInputDStream<ConsumerRecord<Integer, String>> stream, final Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> mapWithStateFunction) {
+    /**
+     * Map the events by windowId
+     * @param stream
+     * @param mapWithStateFunction
+     * @return
+     */
+    private static JavaPairDStream<Integer, ReconResult> createTimeoutStreams(
+            final JavaInputDStream<ConsumerRecord<Integer, String>> stream,
+            final Function3<Integer, Optional<Event>, State<ReconUnit>, Tuple2<Integer, Optional<ReconResult>>> mapWithStateFunction) {
 
-    JavaPairDStream<Integer, Event> eventsStream = stream
-                                                       .transformToPair(rdd -> rdd.mapPartitionsToPair(iterator -> {
-                                                             final List<Tuple2<Integer, Optional<Event>>> ret = new ArrayList<>();
-                                                             iterator.forEachRemaining(consumerRecord -> ret.add(
-                                                                 new Tuple2<>(consumerRecord.key(), Optional.of(new Event(consumerRecord)))
-                                                             ));
-                                                             return ret.iterator();
-                                                           })
-//                                                                                   .filter(v1 -> v1._2.isPresent())
-                                                                                   .mapValues(Optional::get));
+        /*
+         * Create a Pair of Window Id and event
+         */
+        JavaPairDStream<Integer, Event> eventsStream = stream
+                .transformToPair(rdd -> rdd.mapPartitionsToPair(iterator -> {
+                            final List<Tuple2<Integer, Optional<Event>>> ret = new ArrayList<>();
+                            iterator.forEachRemaining(consumerRecord -> ret.add(
+                                    new Tuple2<>(consumerRecord.key(), Optional.of(new Event(consumerRecord)))
+                            ));
+                            return ret.iterator();
+                        })
+                        .mapValues(Optional::get));
 
-    return eventsStream
-               .mapWithState(StateSpec.function(mapWithStateFunction)
-                                 .timeout(Durations.seconds(60)))
-               .filter(item -> item._2.isPresent())
-               .mapToPair(item -> new Tuple2<>(item._1, item._2.get()));
+        return eventsStream
+                .mapWithState(StateSpec.function(mapWithStateFunction)
+                        .timeout(Durations.seconds(60)))
+                .filter(item -> item._2.isPresent()) // will only take the completed event
+                .mapToPair(item -> new Tuple2<>(item._1, item._2.get()));
 
-  }
+    }
 
-  private static void printMemory() {
-    Runtime runtime = Runtime.getRuntime();
-    long totalMemory = runtime.totalMemory();
-    long freeMemory = runtime.freeMemory();
+    private static void printMemory() {
+        Runtime runtime = Runtime.getRuntime();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
 
-    System.out.println("Memory: Used=" + (totalMemory - freeMemory) + " Total=" + totalMemory + " Free=" + freeMemory);
-  }
+        System.out.println("Memory: Used=" + (totalMemory - freeMemory) + " Total=" + totalMemory + " Free=" + freeMemory);
+    }
 }

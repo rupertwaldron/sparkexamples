@@ -6,6 +6,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Holds list of all events for a particular windowId
+ */
 public class ReconUnit implements Serializable {
 
   private final int windowSize;

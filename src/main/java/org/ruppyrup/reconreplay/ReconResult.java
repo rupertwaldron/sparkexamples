@@ -2,6 +2,9 @@ package org.ruppyrup.reconreplay;
 
 import java.io.Serializable;
 
+/**
+ * ReconResults holds a completed ReconUnit and any notifications
+ */
 public class ReconResult implements Serializable {
   private final ReconUnit reconUnit;
   private final String reconNotification;
